@@ -3,6 +3,12 @@ require "./win32"
 module MatterMedia
   module Windows
     module MediaControl
+      {% if flag?(:x86_64) %}
+        ULONG_PTR_ZERO = 0_u64
+      {% else %}
+        ULONG_PTR_ZERO = 0_u32
+      {% end %}
+
       def self.play_pause : Nil
         press_key(Win32::VK_MEDIA_PLAY_PAUSE)
       end
@@ -32,17 +38,15 @@ module MatterMedia
       end
 
       private def self.press_key(vk : UInt16) : Nil
-        inputs = Slice(Win32::INPUT).new(2)
+        inputs = StaticArray(Win32::INPUT, 2).new(Win32::INPUT.new)
 
-        down = uninitialized Win32::INPUT
-        LibC.memset(pointerof(down).as(Void*), 0, sizeof(Win32::INPUT))
+        down = Win32::INPUT.new
         down.type = Win32::INPUT_KEYBOARD
-        down.u.ki = Win32::KEYBDINPUT.new(wVk: vk, wScan: 0_u16, dwFlags: 0_u32, time: 0_u32, dwExtraInfo: 0.as(Win32::ULONG_PTR))
+        down.u.ki = Win32::KEYBDINPUT.new(wVk: vk, wScan: 0_u16, dwFlags: 0_u32, time: 0_u32, dwExtraInfo: ULONG_PTR_ZERO)
 
-        up = uninitialized Win32::INPUT
-        LibC.memset(pointerof(up).as(Void*), 0, sizeof(Win32::INPUT))
+        up = Win32::INPUT.new
         up.type = Win32::INPUT_KEYBOARD
-        up.u.ki = Win32::KEYBDINPUT.new(wVk: vk, wScan: 0_u16, dwFlags: Win32::KEYEVENTF_KEYUP, time: 0_u32, dwExtraInfo: 0.as(Win32::ULONG_PTR))
+        up.u.ki = Win32::KEYBDINPUT.new(wVk: vk, wScan: 0_u16, dwFlags: Win32::KEYEVENTF_KEYUP, time: 0_u32, dwExtraInfo: ULONG_PTR_ZERO)
 
         inputs[0] = down
         inputs[1] = up

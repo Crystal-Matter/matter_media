@@ -20,7 +20,14 @@ module MatterMedia
       @@window_name = Win32::WString.new("MatterMediaTray")
       @@tooltip = "Matter Media Controls"
 
-      @@tray_data : Win32::NOTIFYICONDATAW? = nil
+      @@tray_data = Win32::NOTIFYICONDATAW.new
+      @@tray_data_set = false
+
+      {% if flag?(:x86_64) %}
+        LRESULT_OK = 0_i64
+      {% else %}
+        LRESULT_OK = 0_i32
+      {% end %}
 
       WNDPROC = ->(hwnd : Win32::HWND, msg : Win32::UINT, wparam : Win32::WPARAM, lparam : Win32::LPARAM) : Win32::LRESULT {
         case msg
@@ -28,12 +35,12 @@ module MatterMedia
           case lparam.to_u32
           when Win32::WM_RBUTTONUP
             show_context_menu(hwnd)
-            return 0
+            return LRESULT_OK
           when Win32::WM_LBUTTONDBLCLK
             MediaControl.play_pause
-            return 0
+            return LRESULT_OK
           else
-            return 0
+            return LRESULT_OK
           end
         when Win32::WM_COMMAND
           cmd = Win32.loword(wparam)
@@ -48,16 +55,17 @@ module MatterMedia
           when ID_EXIT       then Win32::LibUser32.DestroyWindow(hwnd)
           else
           end
-          return 0
+          return LRESULT_OK
         when Win32::WM_CLOSE
           Win32::LibUser32.DestroyWindow(hwnd)
-          return 0
+          return LRESULT_OK
         when Win32::WM_DESTROY
-          if data = @@tray_data
+          if @@tray_data_set
+            data = @@tray_data
             Win32::LibShell32.Shell_NotifyIconW(Win32::NIM_DELETE, pointerof(data))
           end
           Win32::LibUser32.PostQuitMessage(0)
-          return 0
+          return LRESULT_OK
         else
         end
 
@@ -67,8 +75,7 @@ module MatterMedia
       def self.run : Nil
         hinstance = Win32::LibKernel32.GetModuleHandleW(Pointer(UInt16).null)
 
-        wc = uninitialized Win32::WNDCLASSEXW
-        LibC.memset(pointerof(wc).as(Void*), 0, sizeof(Win32::WNDCLASSEXW))
+        wc = Win32::WNDCLASSEXW.new
         wc.cbSize = sizeof(Win32::WNDCLASSEXW).to_u32
         wc.style = (Win32::CS_HREDRAW | Win32::CS_VREDRAW)
         wc.lpfnWndProc = WNDPROC
@@ -108,8 +115,7 @@ module MatterMedia
       end
 
       private def self.add_tray_icon(hwnd : Win32::HWND, hicon : Win32::HICON) : Nil
-        data = uninitialized Win32::NOTIFYICONDATAW
-        LibC.memset(pointerof(data).as(Void*), 0, sizeof(Win32::NOTIFYICONDATAW))
+        data = Win32::NOTIFYICONDATAW.new
 
         data.cbSize = sizeof(Win32::NOTIFYICONDATAW).to_u32
         data.hWnd = hwnd
@@ -117,12 +123,15 @@ module MatterMedia
         data.uFlags = (Win32::NIF_MESSAGE | Win32::NIF_ICON | Win32::NIF_TIP)
         data.uCallbackMessage = TRAY_MESSAGE
         data.hIcon = hicon
-        Win32.copy_wstr(pointerof(data.szTip).as(Pointer(UInt16)), 128, @@tooltip)
+        tip = data.szTip
+        Win32.copy_wstr(pointerof(tip).as(Pointer(UInt16)), 128, @@tooltip)
+        data.szTip = tip
 
         ok = Win32::LibShell32.Shell_NotifyIconW(Win32::NIM_ADD, pointerof(data))
         raise "Shell_NotifyIconW(NIM_ADD) failed" if ok == 0
 
         @@tray_data = data
+        @@tray_data_set = true
         nil
       end
 
