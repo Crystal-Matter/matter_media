@@ -1,0 +1,15 @@
+name: matter_media
+version: 0.1.0
+
+authors:
+  - Stephen von Takach <steve@place.technology>
+
+dependencies:
+  matter:
+    github: spider-gazelle/matter
+
+targets:
+  matter_media:
+    main: src/matter_media.cr
+
+license: MIT
