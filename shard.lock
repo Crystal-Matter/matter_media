@@ -26,7 +26,7 @@ shards:
 
   matter:
     git: https://github.com/spider-gazelle/matter.git
-    version: 0.1.0+git.commit.acfb9a1ca3211b2a20f940b0a112a18373659747
+    version: 0.1.0+git.commit.49c3aeb6363a73003845a3525bfe5c7e8a5c9d43
 
   named_information:
     git: https://github.com/spider-gazelle/named_information.git
