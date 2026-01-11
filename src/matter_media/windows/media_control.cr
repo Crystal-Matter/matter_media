@@ -24,10 +24,13 @@ module MatterMedia
       @@endpoint = Pointer(Win32::IAudioEndpointVolume).null
       @@playback_state = PlaybackState::None
       @@volume_level = 0_u8
+      @@mute_state = false
       @@playback_set = false
       @@volume_set = false
+      @@mute_set = false
       @@playback_callbacks = [] of Proc(PlaybackState, Nil)
       @@volume_callbacks = [] of Proc(UInt8, Nil)
+      @@mute_callbacks = [] of Proc(Bool, Nil)
 
       def self.on_playback_state(&block : PlaybackState ->) : Nil
         @@playback_callbacks << block
@@ -35,6 +38,10 @@ module MatterMedia
 
       def self.on_volume_level(&block : UInt8 ->) : Nil
         @@volume_callbacks << block
+      end
+
+      def self.on_mute_state(&block : Bool ->) : Nil
+        @@mute_callbacks << block
       end
 
       def self.playback_state : PlaybackState
@@ -49,6 +56,12 @@ module MatterMedia
         @@volume_level
       end
 
+      def self.mute? : Bool
+        ensure_initialized
+        update_mute_cache(false) unless @@mute_set
+        @@mute_state
+      end
+
       def self.volume_percent : Int32
         level = volume_level
         ((level.to_f32 / 254.0_f32) * 100.0_f32).round.to_i
@@ -61,6 +74,13 @@ module MatterMedia
         scalar = target.to_f32 / 254.0_f32
         @@endpoint.value.lpVtbl.value.set_master_volume_level_scalar.call(@@endpoint, scalar, Pointer(Win32::GUID).null)
         update_volume_cache(true)
+      end
+
+      def self.set_mute(state : Bool) : Nil
+        ensure_initialized
+        return if @@endpoint.null?
+        @@endpoint.value.lpVtbl.value.set_mute.call(@@endpoint, state ? 1 : 0, Pointer(Win32::GUID).null)
+        update_mute_cache(true)
       end
 
       def self.play : Nil
@@ -106,13 +126,19 @@ module MatterMedia
       end
 
       def self.mute_toggle : Nil
-        press_key(Win32::VK_VOLUME_MUTE)
+        ensure_initialized
+        if @@endpoint.null?
+          press_key(Win32::VK_VOLUME_MUTE)
+        else
+          set_mute(!mute?)
+        end
       end
 
       def self.poll : Nil
         ensure_initialized
         update_playback_cache(true)
         update_volume_cache(true)
+        update_mute_cache(true)
       end
 
       private def self.ensure_initialized : Nil
@@ -190,12 +216,31 @@ module MatterMedia
         end
       end
 
+      private def self.update_mute_cache(notify : Bool) : Nil
+        muted = read_mute_state
+        if !@@mute_set || muted != @@mute_state
+          @@mute_state = muted
+          @@mute_set = true
+          if notify
+            @@mute_callbacks.each { |cb| cb.call(muted) }
+          end
+        end
+      end
+
       private def self.read_volume_level : UInt8
         return 0_u8 if @@endpoint.null?
         scalar = 0.0_f32
         hr = @@endpoint.value.lpVtbl.value.get_master_volume_level_scalar.call(@@endpoint, pointerof(scalar))
         return 0_u8 unless Win32.ok?(hr)
         clamp_level(((scalar * 254.0_f32).round).to_i)
+      end
+
+      private def self.read_mute_state : Bool
+        return false if @@endpoint.null?
+        muted = 0
+        hr = @@endpoint.value.lpVtbl.value.get_mute.call(@@endpoint, pointerof(muted))
+        return false unless Win32.ok?(hr)
+        muted != 0
       end
 
       private def self.update_playback_cache(notify : Bool) : Nil

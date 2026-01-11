@@ -1,3 +1,5 @@
 require "./windows/win32"
 require "./windows/media_control"
+require "./windows/media_backend"
+require "./windows/commissioning_window"
 require "./windows/tray_app"

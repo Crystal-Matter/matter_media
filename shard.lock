@@ -16,13 +16,17 @@ shards:
     git: https://github.com/spider-gazelle/ed25519.git
     version: 1.1.0
 
+  goban:
+    git: https://github.com/stakach/goban.git
+    version: 1.7.0+git.commit.3f4b5012a72b0c556fb52faaa9612ed52fb2a089
+
   hkdf:
     git: https://github.com/spider-gazelle/hkdf.git
     version: 1.0.0
 
   matter:
     git: https://github.com/spider-gazelle/matter.git
-    version: 0.1.0+git.commit.e3523aac7b2af2dde8f30bdb836b4695cb78cf1c
+    version: 0.1.0+git.commit.acfb9a1ca3211b2a20f940b0a112a18373659747
 
   named_information:
     git: https://github.com/spider-gazelle/named_information.git
@@ -42,7 +46,7 @@ shards:
 
   tlv:
     git: https://github.com/spider-gazelle/tlv.git
-    version: 1.0.0+git.commit.02b1d94258a54d808f093120aa572fa12f587c73
+    version: 1.0.0+git.commit.6adef4fe6aa5947fbe8d985b7855b74ac3aad565
 
   verhoeff:
     git: https://github.com/spider-gazelle/verhoeff.git

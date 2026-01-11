@@ -1,4 +1,5 @@
 require "log"
+require "./matter_media/matter"
 
 module MatterMedia
   {% begin %}
@@ -24,7 +25,18 @@ end
 {% if flag?(:win32) %}
   require "./matter_media/windows"
   MatterMedia.setup_logging
+
+  backend = MatterMedia::Windows::MediaBackend.new
+  display = MatterMedia::Windows::CommissioningWindow.new
+  device = MatterMedia::Matter::MediaDevice.new(backend, display)
+  display.on_commissioning_closed = -> do
+    device.stop
+    exit(0)
+  end
+
+  device.start
   MatterMedia::Windows::TrayApp.run
+  device.stop
 {% else %}
   STDERR.puts "matter_media_tray is only supported on Windows."
   exit 1

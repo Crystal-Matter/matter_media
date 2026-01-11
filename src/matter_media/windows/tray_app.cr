@@ -27,6 +27,9 @@ module MatterMedia
 
       @@tray_data = Win32::NOTIFYICONDATAW.new
       @@tray_data_set = false
+      @@menu_handle : Win32::HMENU = Pointer(Void).null
+      @@menu_owner : Win32::HWND = Pointer(Void).null
+      @@timer_proc : Win32::TimerProc? = nil
 
       Log = ::Log.for(self)
 
@@ -65,9 +68,6 @@ module MatterMedia
           else
           end
           return LRESULT_OK
-        when Win32::WM_TIMER
-          MediaControl.poll
-          return LRESULT_OK
         when Win32::WM_CLOSE
           Win32::LibUser32.DestroyWindow(hwnd)
           return LRESULT_OK
@@ -88,6 +88,10 @@ module MatterMedia
       def self.run : Nil
         hinstance = Win32::LibKernel32.GetModuleHandleW(Pointer(UInt16).null)
         Log.debug { "tray: started pid=#{Process.pid}" }
+
+        MediaControl.on_mute_state do |muted|
+          update_mute_menu_label(muted)
+        end
 
         wc = Win32::WNDCLASSEXW.new
         wc.cbSize = sizeof(Win32::WNDCLASSEXW).to_u32
@@ -118,7 +122,10 @@ module MatterMedia
         Win32::LibUser32.UpdateWindow(hwnd)
 
         add_tray_icon(hwnd, wc.hIcon)
-        Win32::LibUser32.SetTimer(hwnd, TIMER_ID, POLL_INTERVAL_MS, Pointer(Void).null)
+        @@timer_proc = ->(handle : Win32::HWND, _msg : Win32::UINT, _id : Win32::UINT_PTR, _time : Win32::DWORD) do
+          MediaControl.poll
+        end
+        Win32::LibUser32.SetTimer(hwnd, TIMER_ID, POLL_INTERVAL_MS, @@timer_proc.not_nil!)
         Log.debug { "tray: icon added" }
 
         msg = uninitialized Win32::MSG
@@ -161,6 +168,8 @@ module MatterMedia
 
         menu = Win32::LibUser32.CreatePopupMenu
         raise "CreatePopupMenu failed" if menu.null?
+        @@menu_handle = menu
+        @@menu_owner = hwnd
 
         append_menu(menu, ID_PLAY_PAUSE, playback_label)
         append_menu(menu, ID_NEXT, "Next")
@@ -170,13 +179,15 @@ module MatterMedia
         append_menu(menu, ID_VOL_LEVEL, volume_label, Win32::MF_STRING | Win32::MF_DISABLED | Win32::MF_GRAYED)
         append_menu(menu, ID_VOL_UP, "Volume Up")
         append_menu(menu, ID_VOL_DOWN, "Volume Down")
-        append_menu(menu, ID_MUTE, "Mute")
+        append_menu(menu, ID_MUTE, mute_label)
         Win32::LibUser32.AppendMenuW(menu, Win32::MF_SEPARATOR, 0_u64, Pointer(UInt16).null)
         append_menu(menu, ID_EXIT, "Exit")
 
         Win32::LibUser32.SetForegroundWindow(hwnd)
         Win32::LibUser32.TrackPopupMenu(menu, Win32::TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, Pointer(Win32::RECT).null)
         Win32::LibUser32.PostMessageW(hwnd, Win32::WM_NULL, 0, 0)
+        @@menu_handle = Pointer(Void).null
+        @@menu_owner = Pointer(Void).null
         Win32::LibUser32.DestroyMenu(menu)
         nil
       end
@@ -200,6 +211,28 @@ module MatterMedia
 
       private def self.volume_label : String
         "Volume: #{MediaControl.volume_percent}%"
+      end
+
+      private def self.mute_label : String
+        MediaControl.mute? ? "Unmute" : "Mute"
+      end
+
+      private def self.update_mute_menu_label(muted : Bool) : Nil
+        menu = @@menu_handle
+        return if menu.null?
+        label = muted ? "Unmute" : "Mute"
+        w = Win32::WString.new(label)
+        Win32::LibUser32.ModifyMenuW(
+          menu,
+          ID_MUTE.to_u32,
+          Win32::MF_BYCOMMAND | Win32::MF_STRING,
+          ID_MUTE.to_u64,
+          w.to_unsafe
+        )
+        owner = @@menu_owner
+        return if owner.null?
+        Win32::LibUser32.DrawMenuBar(owner)
+        Win32::LibUser32.InvalidateRect(owner, Pointer(Win32::RECT).null, 1)
       end
     end
   end

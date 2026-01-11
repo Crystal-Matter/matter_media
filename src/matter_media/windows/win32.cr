@@ -31,6 +31,7 @@ module MatterMedia
       {% end %}
 
       alias UINT_PTR = ULONG_PTR
+      alias TIMERPROC = (HWND, UINT, UINT_PTR, DWORD -> Nil)
 
       alias HANDLE = Void*
       alias HWND = Void*
@@ -39,6 +40,7 @@ module MatterMedia
       alias HCURSOR = Void*
       alias HBRUSH = Void*
       alias HMENU = Void*
+      alias HDC = Void*
 
       WM_NULL          = 0x0000_u32
       WM_DESTROY       = 0x0002_u32
@@ -47,6 +49,7 @@ module MatterMedia
       WM_USER          = 0x0400_u32
       WM_CONTEXTMENU   = 0x007B_u32
       WM_TIMER         = 0x0113_u32
+      WM_PAINT         = 0x000F_u32
       WM_APP           = 0x8000_u32
       WM_LBUTTONUP     = 0x0202_u32
       WM_RBUTTONUP     = 0x0205_u32
@@ -56,13 +59,19 @@ module MatterMedia
       CS_HREDRAW = 0x0002_u32
       CS_VREDRAW = 0x0001_u32
 
-      WS_POPUP         = 0x80000000_u32
-      WS_EX_TOOLWINDOW = 0x00000080_u32
+      WS_POPUP            = 0x80000000_u32
+      WS_EX_TOOLWINDOW    = 0x00000080_u32
+      WS_OVERLAPPEDWINDOW = 0x00CF0000_u32
+      WS_VISIBLE          = 0x10000000_u32
+      WS_EX_DLGMODALFRAME = 0x00000001_u32
+      WS_EX_TOPMOST       = 0x00000008_u32
 
       SW_HIDE = 0
+      SW_SHOW = 5
 
       TPM_RIGHTBUTTON = 0x0002_u32
       MF_STRING       = 0x0000_u32
+      MF_BYCOMMAND    = 0x0000_u32
       MF_GRAYED       = 0x0001_u32
       MF_DISABLED     = 0x0002_u32
       MF_SEPARATOR    = 0x0800_u32
@@ -98,6 +107,12 @@ module MatterMedia
       NIN_KEYSELECT = 0x0401_u32
 
       IDI_APPLICATION = 32512_u16
+
+      TRANSPARENT = 1
+
+      DT_CENTER    = 0x00000001_u32
+      DT_WORDBREAK = 0x00000010_u32
+      DT_NOPREFIX  = 0x00000800_u32
 
       enum EDataFlow : Int32
         Render  = 0
@@ -154,6 +169,15 @@ module MatterMedia
           lParam : LPARAM
           time : DWORD
           pt : POINT
+        end
+
+        struct PAINTSTRUCT
+          hdc : HDC
+          fErase : BOOL
+          rcPaint : RECT
+          fRestore : BOOL
+          fIncUpdate : BOOL
+          rgbReserved : StaticArray(UInt8, 32)
         end
 
         alias WndProc = (HWND, UINT, WPARAM, LPARAM -> LRESULT)
@@ -446,6 +470,7 @@ module MatterMedia
       alias POINT = Types::POINT
       alias RECT = Types::RECT
       alias MSG = Types::MSG
+      alias PAINTSTRUCT = Types::PAINTSTRUCT
       alias WndProc = Types::WndProc
       alias WNDCLASSEXW = Types::WNDCLASSEXW
       alias KEYBDINPUT = Types::KEYBDINPUT
@@ -477,6 +502,7 @@ module MatterMedia
       alias IMMDevice = Types::IMMDevice
       alias IAudioEndpointVolumeVtbl = Types::IAudioEndpointVolumeVtbl
       alias IAudioEndpointVolume = Types::IAudioEndpointVolume
+      alias TimerProc = TIMERPROC
 
       def self.make_guid(data1 : UInt32, data2 : UInt16, data3 : UInt16, data4 : StaticArray(UInt8, 8)) : GUID
         guid = GUID.new
@@ -517,16 +543,33 @@ module MatterMedia
         fun PostMessageW(hWnd : HWND, msg : UINT, wParam : WPARAM, lParam : LPARAM) : BOOL
         fun CreatePopupMenu : HMENU
         fun AppendMenuW(hMenu : HMENU, uFlags : UINT, uIDNewItem : UInt64, lpNewItem : Pointer(UInt16)) : BOOL
+        fun ModifyMenuW(hMenu : HMENU, uPosition : UINT, uFlags : UINT, uIDNewItem : UInt64, lpNewItem : Pointer(UInt16)) : BOOL
         fun TrackPopupMenu(hMenu : HMENU, uFlags : UINT, x : Int32, y : Int32, nReserved : Int32, hWnd : HWND, prcRect : Types::RECT*) : BOOL
         fun DestroyMenu(hMenu : HMENU) : BOOL
         fun SendInput(cInputs : UINT, pInputs : Types::INPUT*, cbSize : Int32) : UINT
-        fun SetTimer(hWnd : HWND, nIDEvent : UINT_PTR, uElapse : UINT, lpTimerFunc : Void*) : UINT_PTR
+        fun SetTimer(hWnd : HWND, nIDEvent : UINT_PTR, uElapse : UINT, lpTimerFunc : TIMERPROC) : UINT_PTR
         fun KillTimer(hWnd : HWND, uIDEvent : UINT_PTR) : BOOL
+        fun BeginPaint(hWnd : HWND, lpPaint : Types::PAINTSTRUCT*) : HDC
+        fun EndPaint(hWnd : HWND, lpPaint : Types::PAINTSTRUCT*) : BOOL
+        fun GetClientRect(hWnd : HWND, lpRect : Types::RECT*) : BOOL
+        fun FillRect(hDC : HDC, lprc : Types::RECT*, hbr : HBRUSH) : Int32
+        fun DrawTextW(hDC : HDC, lpchText : Pointer(UInt16), cchText : Int32, lprc : Types::RECT*, format : UINT) : Int32
+        fun InvalidateRect(hWnd : HWND, lpRect : Types::RECT*, bErase : BOOL) : BOOL
+        fun MoveWindow(hWnd : HWND, x : Int32, y : Int32, nWidth : Int32, nHeight : Int32, bRepaint : BOOL) : BOOL
+        fun DrawMenuBar(hWnd : HWND) : BOOL
       end
 
       @[Link("shell32")]
       lib LibShell32
         fun Shell_NotifyIconW(dwMessage : DWORD, lpData : Types::NOTIFYICONDATAW*) : BOOL
+      end
+
+      @[Link("gdi32")]
+      lib LibGdi32
+        fun CreateSolidBrush(color : DWORD) : HBRUSH
+        fun DeleteObject(hObject : Void*) : BOOL
+        fun SetBkMode(hdc : HDC, mode : Int32) : Int32
+        fun SetTextColor(hdc : HDC, color : DWORD) : DWORD
       end
 
       @[Link("ole32")]
@@ -597,6 +640,10 @@ module MatterMedia
 
       def self.ok?(hr : HRESULT) : Bool
         hr >= 0
+      end
+
+      def self.rgb(r : UInt8, g : UInt8, b : UInt8) : UInt32
+        r.to_u32 | (g.to_u32 << 8) | (b.to_u32 << 16)
       end
 
       def self.release_unknown(ptr : Pointer(Void)) : Nil
