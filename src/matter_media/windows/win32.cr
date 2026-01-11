@@ -50,6 +50,7 @@ module MatterMedia
       WM_CONTEXTMENU   = 0x007B_u32
       WM_TIMER         = 0x0113_u32
       WM_PAINT         = 0x000F_u32
+      WM_QUIT          = 0x0012_u32
       WM_APP           = 0x8000_u32
       WM_LBUTTONUP     = 0x0202_u32
       WM_RBUTTONUP     = 0x0205_u32
@@ -75,6 +76,8 @@ module MatterMedia
       MF_GRAYED       = 0x0001_u32
       MF_DISABLED     = 0x0002_u32
       MF_SEPARATOR    = 0x0800_u32
+
+      PM_REMOVE = 0x0001_u32
 
       COINIT_MULTITHREADED  =  0x0_u32
       RO_INIT_MULTITHREADED =    1_u32
@@ -534,6 +537,7 @@ module MatterMedia
         fun ShowWindow(hWnd : HWND, nCmdShow : Int32) : BOOL
         fun UpdateWindow(hWnd : HWND) : BOOL
         fun GetMessageW(lpMsg : Types::MSG*, hWnd : HWND, wMsgFilterMin : UINT, wMsgFilterMax : UINT) : BOOL
+        fun PeekMessageW(lpMsg : Types::MSG*, hWnd : HWND, wMsgFilterMin : UINT, wMsgFilterMax : UINT, wRemoveMsg : UINT) : BOOL
         fun TranslateMessage(lpMsg : Types::MSG*) : BOOL
         fun DispatchMessageW(lpMsg : Types::MSG*) : LRESULT
         fun PostQuitMessage(nExitCode : Int32) : Nil

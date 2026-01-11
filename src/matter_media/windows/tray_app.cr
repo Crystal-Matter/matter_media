@@ -129,9 +129,15 @@ module MatterMedia
         Log.debug { "tray: icon added" }
 
         msg = uninitialized Win32::MSG
-        while (rc = Win32::LibUser32.GetMessageW(pointerof(msg), Pointer(Void).null, 0_u32, 0_u32)) > 0
-          Win32::LibUser32.TranslateMessage(pointerof(msg))
-          Win32::LibUser32.DispatchMessageW(pointerof(msg))
+        loop do
+          while Win32::LibUser32.PeekMessageW(pointerof(msg), Pointer(Void).null, 0_u32, 0_u32, Win32::PM_REMOVE) > 0
+            if msg.message == Win32::WM_QUIT
+              return
+            end
+            Win32::LibUser32.TranslateMessage(pointerof(msg))
+            Win32::LibUser32.DispatchMessageW(pointerof(msg))
+          end
+          sleep 10.milliseconds
         end
 
         nil
