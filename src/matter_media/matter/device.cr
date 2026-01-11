@@ -101,6 +101,8 @@ module MatterMedia
         @play_pause = ::Matter::Cluster::OnOffCluster.new(playback_endpoint)
         @play_pause.not_nil!.on_state_changed { |new_state| handle_play_pause_change(new_state) }
         clusters << @play_pause.not_nil!
+        clusters << fixed_label_cluster(playback_endpoint, "Play/Pause")
+        clusters << user_label_cluster(playback_endpoint, "Play/Pause")
 
         volume_endpoint = ::Matter::DataType::EndpointNumber.new(2_u16)
         @volume_on_off = ::Matter::Cluster::OnOffCluster.new(
@@ -119,16 +121,22 @@ module MatterMedia
         @volume_level.not_nil!.on_level_changed { |old_level, new_level| handle_volume_change(old_level, new_level) }
         clusters << @volume_on_off.not_nil!
         clusters << @volume_level.not_nil!
+        clusters << fixed_label_cluster(volume_endpoint, "Volume")
+        clusters << user_label_cluster(volume_endpoint, "Volume")
 
         next_endpoint = ::Matter::DataType::EndpointNumber.new(3_u16)
         @next = ::Matter::Cluster::OnOffCluster.new(next_endpoint)
         @next.not_nil!.on_state_changed { |new_state| handle_next_change(new_state) }
         clusters << @next.not_nil!
+        clusters << fixed_label_cluster(next_endpoint, "Next")
+        clusters << user_label_cluster(next_endpoint, "Next")
 
         previous_endpoint = ::Matter::DataType::EndpointNumber.new(4_u16)
         @previous = ::Matter::Cluster::OnOffCluster.new(previous_endpoint)
         @previous.not_nil!.on_state_changed { |new_state| handle_previous_change(new_state) }
         clusters << @previous.not_nil!
+        clusters << fixed_label_cluster(previous_endpoint, "Previous")
+        clusters << user_label_cluster(previous_endpoint, "Previous")
 
         clusters
       end
@@ -266,6 +274,26 @@ module MatterMedia
             @resetting_previous = false
           end
         end
+      end
+
+      private def fixed_label_cluster(
+        endpoint : ::Matter::DataType::EndpointNumber,
+        name : String,
+      ) : ::Matter::Cluster::FixedLabelCluster
+        label = label_struct(name)
+        ::Matter::Cluster::FixedLabelCluster.new(endpoint, [label])
+      end
+
+      private def user_label_cluster(
+        endpoint : ::Matter::DataType::EndpointNumber,
+        name : String,
+      ) : ::Matter::Cluster::UserLabelCluster
+        label = label_struct(name)
+        ::Matter::Cluster::UserLabelCluster.new(endpoint, [label])
+      end
+
+      private def label_struct(name : String) : ::Matter::Cluster::LabelStruct
+        ::Matter::Cluster::LabelStruct.new("name", name)
       end
 
       private def local_ips : Array(Socket::IPAddress)
