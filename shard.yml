@@ -12,6 +12,6 @@ dependencies:
 
 targets:
   matter_media:
-    main: src/matter_media.cr
+    main: src/app.cr
 
 license: MIT

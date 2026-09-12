@@ -27,6 +27,20 @@ We'll migrate to something like this once support is added:
 
 Tray menu supports: Play/Pause, Next, Previous, Stop, Volume Up/Down, Mute.
 
+## Storage
+
+Fabrics, sessions and cluster state are kept in `matter_media_storage.yml`, next to the
+executable.
+
+Matter 0.2 changed the storage format, so a device commissioned by an earlier build needs its
+storage converted once, offline. It stays paired afterwards:
+
+```shell
+matter-storage migrate --from legacy:matter_media_storage.json --to yaml:matter_media_storage.yml
+```
+
+(`matter-storage` is built from the matter shard with `shards build matter-storage`.)
+
 ## Contributing
 
 1. Fork it (<https://github.com/spider-gazelle/matter_media/fork>)

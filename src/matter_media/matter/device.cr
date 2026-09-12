@@ -6,26 +6,76 @@ require "./commissioning_display"
 
 module MatterMedia
   module Matter
-    class MediaDevice < ::Matter::Device::Base
+    class MediaDevice < ::Matter::Device
       Log = ::Log.for(self)
 
-      STORAGE_FILE = "matter_media_storage.json"
+      STORAGE_FILE = "matter_media_storage.yml"
 
       MOMENTARY_RESET_DELAY = 150.milliseconds
 
+      PLAYBACK_ENDPOINT = 1_u16
+      VOLUME_ENDPOINT   = 2_u16
+      NEXT_ENDPOINT     = 3_u16
+      PREVIOUS_ENDPOINT = 4_u16
+
+      VOLUME_MIN =   0_u8
+      VOLUME_MAX = 254_u8
+
+      identity vendor: "Matter Media", product: "Matter Media",
+        vendor_id: ::Matter::SetupPayload.test_vendor_id,
+        product_id: 0x0001_u16,
+        discriminator: ::Matter::SetupPayload.generate_random_discriminator,
+        pin: ::Matter::SetupPayload.generate_random_pin,
+        device_type: ::Matter::DeviceType::ON_OFF_LIGHT_SWITCH
+
+      # Apple Home only renders a handful of device types, so the media controls
+      # are presented as switches and a dimmable light (see README).
+      endpoint PLAYBACK_ENDPOINT, device_type: ::Matter::DeviceType::ON_OFF_LIGHT_SWITCH do
+        cluster ::Matter::Cluster::OnOff, as: :play_pause
+        # The On/Off Light Switch device type requires Identify.
+        cluster ::Matter::Cluster::Identify, identify_type: :visible_light
+        cluster ::Matter::Cluster::FixedLabel, [::Matter::Cluster::LabelStruct.new("name", "Play/Pause")]
+        cluster ::Matter::Cluster::UserLabel, [::Matter::Cluster::LabelStruct.new("name", "Play/Pause")]
+      end
+
+      endpoint VOLUME_ENDPOINT, device_type: ::Matter::DeviceType::DIMMABLE_LIGHT do
+        cluster ::Matter::Cluster::OnOff, feature_map: :lighting, as: :volume_on_off
+        cluster ::Matter::Cluster::LevelControl,
+          current_level: VOLUME_MIN,
+          min_level: VOLUME_MIN,
+          max_level: VOLUME_MAX,
+          feature_map: ::Matter::Cluster::LevelControl::Feature::OnOff |
+                       ::Matter::Cluster::LevelControl::Feature::Lighting,
+          as: :volume_level
+        cluster ::Matter::Cluster::Identify, identify_type: :visible_light
+        # The Dimmable Light device type requires Groups.
+        cluster ::Matter::Cluster::Groups
+        cluster ::Matter::Cluster::FixedLabel, [::Matter::Cluster::LabelStruct.new("name", "Volume")]
+        cluster ::Matter::Cluster::UserLabel, [::Matter::Cluster::LabelStruct.new("name", "Volume")]
+      end
+
+      endpoint NEXT_ENDPOINT, device_type: ::Matter::DeviceType::ON_OFF_LIGHT_SWITCH do
+        cluster ::Matter::Cluster::OnOff, as: :skip_next
+        cluster ::Matter::Cluster::Identify, identify_type: :visible_light
+        cluster ::Matter::Cluster::FixedLabel, [::Matter::Cluster::LabelStruct.new("name", "Next")]
+        cluster ::Matter::Cluster::UserLabel, [::Matter::Cluster::LabelStruct.new("name", "Next")]
+      end
+
+      endpoint PREVIOUS_ENDPOINT, device_type: ::Matter::DeviceType::ON_OFF_LIGHT_SWITCH do
+        cluster ::Matter::Cluster::OnOff, as: :skip_previous
+        cluster ::Matter::Cluster::Identify, identify_type: :visible_light
+        cluster ::Matter::Cluster::FixedLabel, [::Matter::Cluster::LabelStruct.new("name", "Previous")]
+        cluster ::Matter::Cluster::UserLabel, [::Matter::Cluster::LabelStruct.new("name", "Previous")]
+      end
+
+      on(:play_pause, :state_changed) { |state| handle_play_pause_change(state) }
+      on(:volume_on_off, :state_changed) { |state| handle_mute_change(state) }
+      on(:volume_level, :level_changed) { |old_level, new_level| handle_volume_change(old_level, new_level) }
+      on(:skip_next, :state_changed) { |state| handle_next_change(state) }
+      on(:skip_previous, :state_changed) { |state| handle_previous_change(state) }
+
       @backend : MediaBackend
       @commissioning_display : CommissioningDisplay?
-
-      @vendor_id : UInt16
-      @product_id : UInt16
-      @discriminator : UInt16
-      @setup_pin : UInt32
-
-      @play_pause : ::Matter::Cluster::OnOffCluster? = nil
-      @volume_on_off : ::Matter::Cluster::OnOffCluster? = nil
-      @volume_level : ::Matter::Cluster::LevelControlCluster? = nil
-      @next : ::Matter::Cluster::OnOffCluster? = nil
-      @previous : ::Matter::Cluster::OnOffCluster? = nil
 
       @syncing_playback = false
       @syncing_volume = false
@@ -36,109 +86,14 @@ module MatterMedia
       def initialize(
         @backend : MediaBackend,
         @commissioning_display : CommissioningDisplay? = nil,
+        storage : ::Matter::Storage::Backend = ::Matter::Storage::YamlFile.new(STORAGE_FILE),
         ip_addresses : Array(Socket::IPAddress)? = nil,
+        port : Int32 = ::Matter::Device::DEFAULT_PORT,
       )
-        @vendor_id = ::Matter::SetupPayload.test_vendor_id
-        @product_id = 0x0001_u16
-        @discriminator = ::Matter::SetupPayload.generate_random_discriminator
-        @setup_pin = ::Matter::SetupPayload.generate_random_pin
-
-        super(ip_addresses: ip_addresses || local_ips)
+        super(storage, ip_addresses: ip_addresses, port: port)
 
         wire_backend_callbacks
         sync_state_from_backend
-      end
-
-      def device_name : String
-        "Matter Media"
-      end
-
-      def vendor_id : UInt16
-        @vendor_id
-      end
-
-      def product_id : UInt16
-        @product_id
-      end
-
-      def discriminator : UInt16
-        @discriminator
-      end
-
-      def setup_pin : UInt32
-        @setup_pin
-      end
-
-      def primary_device_type_id : UInt16
-        ::Matter::DeviceTypes::ON_OFF_LIGHT_SWITCH
-      end
-
-      def vendor_name : String
-        "Matter Media"
-      end
-
-      def product_name : String
-        device_name
-      end
-
-      protected def build_storage_manager : ::Matter::Storage::Manager
-        ::Matter::Storage::Manager.new(::Matter::Storage::JsonFileBackend.new(STORAGE_FILE))
-      end
-
-      protected def endpoint_device_types : Hash(UInt16, UInt32)
-        {
-          1_u16 => ::Matter::DeviceTypes::ON_OFF_LIGHT_SWITCH.to_u32,
-          2_u16 => ::Matter::DeviceTypes::DIMMABLE_LIGHT.to_u32,
-          3_u16 => ::Matter::DeviceTypes::ON_OFF_LIGHT_SWITCH.to_u32,
-          4_u16 => ::Matter::DeviceTypes::ON_OFF_LIGHT_SWITCH.to_u32,
-        } of UInt16 => UInt32
-      end
-
-      protected def device_clusters : Array(::Matter::Cluster::Base)
-        clusters = [] of ::Matter::Cluster::Base
-
-        playback_endpoint = ::Matter::DataType::EndpointNumber.new(1_u16)
-        @play_pause = ::Matter::Cluster::OnOffCluster.new(playback_endpoint)
-        @play_pause.not_nil!.on_state_changed { |new_state| handle_play_pause_change(new_state) }
-        clusters << @play_pause.not_nil!
-        clusters << fixed_label_cluster(playback_endpoint, "Play/Pause")
-        clusters << user_label_cluster(playback_endpoint, "Play/Pause")
-
-        volume_endpoint = ::Matter::DataType::EndpointNumber.new(2_u16)
-        @volume_on_off = ::Matter::Cluster::OnOffCluster.new(
-          volume_endpoint,
-          feature_map: ::Matter::Cluster::OnOffCluster::Feature::Lighting
-        )
-        @volume_level = ::Matter::Cluster::LevelControlCluster.new(
-          volume_endpoint,
-          current_level: 0_u8,
-          min_level: 0_u8,
-          max_level: 254_u8,
-          feature_map: ::Matter::Cluster::LevelControlCluster::Feature::OnOff |
-                       ::Matter::Cluster::LevelControlCluster::Feature::Lighting
-        )
-        @volume_on_off.not_nil!.on_state_changed { |new_state| handle_mute_change(new_state) }
-        @volume_level.not_nil!.on_level_changed { |old_level, new_level| handle_volume_change(old_level, new_level) }
-        clusters << @volume_on_off.not_nil!
-        clusters << @volume_level.not_nil!
-        clusters << fixed_label_cluster(volume_endpoint, "Volume")
-        clusters << user_label_cluster(volume_endpoint, "Volume")
-
-        next_endpoint = ::Matter::DataType::EndpointNumber.new(3_u16)
-        @next = ::Matter::Cluster::OnOffCluster.new(next_endpoint)
-        @next.not_nil!.on_state_changed { |new_state| handle_next_change(new_state) }
-        clusters << @next.not_nil!
-        clusters << fixed_label_cluster(next_endpoint, "Next")
-        clusters << user_label_cluster(next_endpoint, "Next")
-
-        previous_endpoint = ::Matter::DataType::EndpointNumber.new(4_u16)
-        @previous = ::Matter::Cluster::OnOffCluster.new(previous_endpoint)
-        @previous.not_nil!.on_state_changed { |new_state| handle_previous_change(new_state) }
-        clusters << @previous.not_nil!
-        clusters << fixed_label_cluster(previous_endpoint, "Previous")
-        clusters << user_label_cluster(previous_endpoint, "Previous")
-
-        clusters
       end
 
       protected def started_commissioning_mode : Nil
@@ -190,33 +145,27 @@ module MatterMedia
       end
 
       private def update_playback_state(state : PlaybackState) : Nil
-        cluster = @play_pause
-        return unless cluster
         target = state == PlaybackState::Playing
-        return if cluster.on? == target
+        return if play_pause.on? == target
         @syncing_playback = true
-        cluster.on = target
+        play_pause.on = target
       ensure
         @syncing_playback = false
       end
 
       private def update_volume_level(level : UInt8) : Nil
-        cluster = @volume_level
-        return unless cluster
-        return if cluster.current_level == level
+        return if volume_level.current_level == level
         @syncing_volume = true
-        cluster.level = level
+        volume_level.level = level
       ensure
         @syncing_volume = false
       end
 
       private def update_mute_state(muted : Bool) : Nil
-        cluster = @volume_on_off
-        return unless cluster
         target = !muted
-        return if cluster.on? == target
+        return if volume_on_off.on? == target
         @syncing_mute = true
-        cluster.on = target
+        volume_on_off.on = target
       ensure
         @syncing_mute = false
       end
@@ -245,80 +194,26 @@ module MatterMedia
         return if @resetting_next
         return unless new_state
         @backend.next_track
-        reset_momentary(@next, :next)
+        @resetting_next = true
+        reset_momentary(skip_next) { @resetting_next = false }
       end
 
       private def handle_previous_change(new_state : Bool) : Nil
         return if @resetting_previous
         return unless new_state
         @backend.previous_track
-        reset_momentary(@previous, :previous)
+        @resetting_previous = true
+        reset_momentary(skip_previous) { @resetting_previous = false }
       end
 
-      private def reset_momentary(cluster : ::Matter::Cluster::OnOffCluster?, kind : Symbol) : Nil
-        return unless cluster
-        case kind
-        when :next
-          @resetting_next = true
-        when :previous
-          @resetting_previous = true
-        end
-
+      # A momentary button reports itself off again shortly after it was pressed,
+      # without the release looking like a command from the controller.
+      private def reset_momentary(cluster : ::Matter::Cluster::OnOff, &released : -> Nil) : Nil
         spawn do
           sleep MOMENTARY_RESET_DELAY
           cluster.on = false
-          case kind
-          when :next
-            @resetting_next = false
-          when :previous
-            @resetting_previous = false
-          end
+          released.call
         end
-      end
-
-      private def fixed_label_cluster(
-        endpoint : ::Matter::DataType::EndpointNumber,
-        name : String,
-      ) : ::Matter::Cluster::FixedLabelCluster
-        label = label_struct(name)
-        ::Matter::Cluster::FixedLabelCluster.new(endpoint, [label])
-      end
-
-      private def user_label_cluster(
-        endpoint : ::Matter::DataType::EndpointNumber,
-        name : String,
-      ) : ::Matter::Cluster::UserLabelCluster
-        label = label_struct(name)
-        ::Matter::Cluster::UserLabelCluster.new(endpoint, [label])
-      end
-
-      private def label_struct(name : String) : ::Matter::Cluster::LabelStruct
-        ::Matter::Cluster::LabelStruct.new("name", name)
-      end
-
-      private def local_ips : Array(Socket::IPAddress)
-        ips = [] of Socket::IPAddress
-
-        begin
-          socket = UDPSocket.new(:inet6)
-          socket.connect("2606:4700:4700::1111", 53)
-          addr = socket.local_address
-          socket.close
-          ips << Socket::IPAddress.new(addr.address, 0)
-        rescue
-        end
-
-        begin
-          socket = UDPSocket.new(:inet)
-          socket.connect("8.8.8.8", 80)
-          addr = socket.local_address
-          socket.close
-          ips << Socket::IPAddress.new(addr.address, 0)
-        rescue
-        end
-
-        ips << Socket::IPAddress.new("127.0.0.1", 0) if ips.empty?
-        ips
       end
     end
   end
